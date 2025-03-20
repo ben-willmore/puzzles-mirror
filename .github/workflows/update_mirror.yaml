@@ -6,18 +6,45 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
         with:
           ref: mirror
-          token: ${{secrets.PAT}}
       - name: Update mirror
+        id: update
         run: |
           git remote add upstream https://git.tartarus.org/simon/puzzles.git
+          rev1=`git rev-parse HEAD`
           git pull upstream main
-      - name: Push changes
-        uses: ad-m/github-push-action@master
+          rev2=`git rev-parse HEAD`
+          if [[ $rev1 != $rev2 ]]; then
+            echo Upstream updated
+            git push origin
+            echo "BUILD=true" >> "$GITHUB_OUTPUT"
+          else
+            echo No upstream update
+          fi
+
+      - name: Build
+        if: steps.update.outputs.BUILD == 'true'
+        run: |
+          echo ${{ steps.update.outputs.BUILD }}
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          brew install halibut
+          mkdir build-mac
+          cd build-mac
+          cmake ..
+          make -j4
+          zip -r Puzzles.app.zip Puzzles.app
+
+      - name: Create release
+        uses: "marvinpinto/action-automatic-releases@latest"
+        if: steps.update.outputs.BUILD == 'true'
         with:
-          github_token: ${{ secrets.PAT }}
-          branch: mirror
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "Puzzles-mac-latest"
+          prerelease: true
+          title: "Puzzles Mac (Apple Silicon)"
+          files: |
+            build-mac/Puzzles.app.zip
