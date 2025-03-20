@@ -1,0 +1,23 @@
+name: Update mirror
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "05 03 * * *"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: mirror
+          token: ${{secrets.PAT}}
+      - name: Update mirror
+        run: |
+          git remote add upstream https://git.tartarus.org/simon/puzzles.git
+          git pull upstream main
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.PAT }}
+          branch: mirror
