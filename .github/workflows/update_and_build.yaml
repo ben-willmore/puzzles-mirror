@@ -1,0 +1,67 @@
+name: Update mirror and build
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "05 03 * * *"
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: mirror
+          token: ${{ secrets.checkout_token }}
+      - name: Update mirror
+        id: update
+        run: |
+          git remote add upstream https://git.tartarus.org/simon/puzzles.git
+          rev1=`git rev-parse HEAD`
+          git pull upstream main
+          rev2=`git rev-parse HEAD`
+
+          echo Upstream commit: `git rev-parse HEAD` > ./commit-info
+
+          if [[ $rev1 != $rev2 ]]; then
+            echo Upstream updated
+            git push origin
+            echo "BUILD=true" >> "$GITHUB_OUTPUT"
+          else
+            echo No upstream update
+            echo "BUILD=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check whether to build
+        id: buildcheck
+        run: |
+          echo BUILD: ${{ steps.update.outputs.BUILD }}
+          echo event_name: ${{ github.event_name }}
+          if [[ ${{ steps.update.outputs.BUILD }} == 'true' ]]; then
+            echo Repo updated, will build
+            echo "BUILD=true" >> "$GITHUB_OUTPUT"
+          elif [[ ${{ github.event_name }} == 'workflow_dispatch' ]]; then
+            echo Manually triggered, will build 
+            echo "BUILD=true" >> "$GITHUB_OUTPUT"
+          else
+            echo Scheduled build, upstream has not changed, so will not build
+          fi
+      - name: Build
+        if: steps.buildcheck.outputs.BUILD == 'true'
+        run: |
+          echo ${{ steps.update.outputs.BUILD }}
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          brew install halibut
+          mkdir build-mac
+          cd build-mac
+          cmake ..
+          make -j4
+          zip -r Puzzles.app.zip Puzzles.app
+      - name: Create release
+        uses: "ncipollo/release-action@v1.16.0"
+        if: steps.buildcheck.outputs.BUILD == 'true'
+        with:
+          tag: "puzzles-mac-latest"
+          artifacts: build-mac/Puzzles.app.zip
+          makeLatest: true
+          allowUpdates: true
+          commit: mirror
+          bodyfile: ./commit-info
